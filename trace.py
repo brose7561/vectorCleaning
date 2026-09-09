@@ -23,12 +23,22 @@ def potrace(mask, a, tmp, tag):
                    check=True, capture_output=True)
     return open(dst).read()
 
+def drop_background(p, thr=250):
+    """vtracer traces the white background as real shapes; potrace never sees it. Strip them,
+    so every backend leaves the background transparent."""
+    def keep(m):
+        c = m.group(1)
+        return '' if min(int(c[i:i + 2], 16) for i in (1, 3, 5)) >= thr else m.group(0)
+    s = re.sub(r'<path[^>]*fill="(#[0-9a-fA-F]{6})"[^>]*/>', keep, open(p).read())
+    open(p, 'w').write(s)
+
 def vtracer(src, dst, a):
     try:                                          # the pip/uv package ships a module, not a binary
         import vtracer as vt
-        return vt.convert_image_to_svg_py(src, dst, colormode='color', mode=a.mode,
-                                          filter_speckle=a.speckle, color_precision=8,
-                                          corner_threshold=a.corner, path_precision=3)
+        vt.convert_image_to_svg_py(src, dst, colormode='color', mode=a.mode,
+                                   filter_speckle=a.speckle, color_precision=8,
+                                   corner_threshold=a.corner, path_precision=3)
+        return drop_background(dst)
     except ImportError:
         pass
     exe = shutil.which('vtracer') or sys.exit('need potrace, or: uv add vtracer')
@@ -42,6 +52,7 @@ def vtracer(src, dst, a):
         n = next((x for x in names if x in h), None)
         if n: args += [n, str(v)]
     subprocess.run(args, check=True)
+    drop_background(dst)
 
 def polygon_svg(masks, a, w, h, sw):
     """Emit Douglas-Peucker polygons straight to path data -- exact control of the vertex count,
