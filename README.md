@@ -66,7 +66,7 @@ uv run trace.py clean/shot.png -o shot.svg --backend polygon # fewest vertices
 | `--backend` | `auto` (potrace if present), `potrace`, `vtracer`, `polygon` |
 
 potrace is dense by design (~4 px per Bezier segment) and no flag changes that, so the two
-backends trade smooth curves against vertex count: on the flat test, 6772 points / 41 KB versus
+backends trade smooth curves against vertex count: on the flat test, 6714 points / 41 KB versus
 174 points / 1.7 KB.
 
 ## extract_svgs.py — pull figures out of a PDF

@@ -88,8 +88,9 @@ def trace(src, dst, a):
     hx = lambda c: '#%02x%02x%02x' % (int(c[2]), int(c[1]), int(c[0]))
     reg = [(np.all(bgr == c, 2) & body).astype(np.uint8) for c in cols]   # the hairline separator
     #  keeps same-tone pieces apart, so interior dividers survive as their own contours
-    masks = [(solid, hx(cols[0]) if len(cols) else '#808080', 'base')]
-    masks += [(m, hx(c), f'tone{i}') for i, (m, c) in enumerate(zip(reg, cols))]
+    masks = [(solid, hx(cols[0]), 'base')] if len(cols) > 1 else []   # only needed to hide the
+    masks += [(m, hx(c), f'tone{i}') for i, (m, c) in enumerate(zip(reg, cols))]   # tone-to-tone
+    if not masks: masks = [(solid, '#808080', 'base')]                # seams; else it duplicates
 
     if a.backend == 'polygon':
         svg, n = polygon_svg(masks, a, w, h, sw)
