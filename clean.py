@@ -8,6 +8,8 @@ Tuning: --chroma-tol is tight (same hue), --light-tol is loose (same hue, any to
         --at X,Y to pick one region by a point on it.
         --keep 1 if the drawing is a single part; --min-area to drop bigger debris.
         Arrows are stripped by default (--no-arrows keeps them).
+        The outline is redrawn from the region border (--outline), so it never comes back
+        broken; --simplify sets how few angle changes it is allowed to keep.
         --tones 3 keeps per-face shading on 3-D shapes; interior edges are kept when their
         ink reaches the perimeter, so stray specks go but 3-D construction lines stay.
 """
@@ -141,17 +143,67 @@ def clean(path, a):
     bad = (fill & ~tone0.astype(bool)).astype(np.uint8)             # absorbed ink / patched noise
     if bad.any(): img = cv2.inpaint(img, bad, 3, cv2.INPAINT_TELEA)  # take the surrounding face tone
 
+    if a.smooth:              # the outer border comes from sil, so smooth that too -- otherwise
+        sil = (cv2.GaussianBlur(sil.astype(np.float32), (0, 0), a.smooth) > .5).astype(np.uint8)
+        fill = (sil & ~line.astype(bool)).astype(np.uint8)   # the gap fill restores every wiggle
+
     out = np.full_like(img, 255)
+    # A region is one connected piece AND one tone: the two faces either side of an interior line
+    # share a tone, so keying on tone alone would erase every divider.
+    tone = np.zeros(sil.shape, np.int32)
+    if a.tones > 1 and not a.keep_tones and fill.any():
+        px = img[fill > 0]
+        tone[fill > 0] = cv2.kmeans(np.ascontiguousarray(px, np.float32), min(a.tones, len(px)),
+                                    None, CRIT, 3, cv2.KMEANS_PP_CENTERS)[1].ravel()
+    comp = cv2.connectedComponents(fill, connectivity=8)[1]
+    key = np.where(fill > 0, comp * (a.tones + 1) + tone + 1, 0)
+    uq = np.unique(key)
+    lm = np.searchsorted(uq, key).astype(np.int32)                  # 0 = background, 1..n = regions
+    pal = {int(i): np.median(img[(tone == i) & (fill > 0)], 0)      # colour comes from the tone,
+           for i in (np.unique(tone[fill > 0]) if fill.any() else [])}   # geometry from the piece
+    grey = np.float32([128, 128, 128])
+    cols = [pal.get(int((v - 1) % (a.tones + 1)), grey) for v in uq[1:]]
+
+    if a.simplify:            # Douglas-Peucker: fewest vertices within eps px, and it keeps sharp
+        sm = np.zeros_like(lm)                  # corners -- Visvalingam would round them off
+        for k in range(1, len(cols) + 1):
+            cs, hi = cv2.findContours((lm == k).astype(np.uint8), cv2.RETR_CCOMP,
+                                      cv2.CHAIN_APPROX_SIMPLE)
+            poly = [(cv2.approxPolyDP(c, a.simplify, True), h[3]) for c, h in zip(cs, hi[0])
+                    if cv2.contourArea(c) >= area] if hi is not None else []
+            for want in (False, True):                          # outers first, then punch holes
+                for pg, parent in poly:
+                    if (parent >= 0) == want and len(pg) >= 3:
+                        cv2.fillPoly(sm, [pg], 0 if want else int(k))
+        lm = sm
+
+    if a.smooth:                 # low-pass the region borders: a pixel-stepped boundary costs
+        sm = np.zeros_like(lm)   # potrace far more segments than a smooth one does
+        for k in range(1, len(cols) + 1):
+            sm[cv2.GaussianBlur((lm == k).astype(np.float32), (0, 0), a.smooth) > .5] = k
+        sm[sil == 0] = 0
+        lm = sm
+
+    gap = ((sil > 0) & (lm == 0))            # the ink strip carved out of the fill, plus dropped
+    for _ in range(64):                      # specks: hand them to the nearest region so that
+        if not gap.any(): break              # neighbouring tones meet instead of leaving a slit
+        gr = cv2.dilate(lm.astype(np.uint8), ell(3)).astype(np.int32)
+        lm[gap] = gr[gap]
+        nxt = (sil > 0) & (lm == 0)
+        if nxt.sum() == gap.sum(): break
+        gap = nxt
+
+    e = np.zeros(lm.shape, bool)             # one boundary between regions, not one per region:
+    e[:, 1:] |= lm[:, 1:] != lm[:, :-1]      # a label change is a closed curve by construction,
+    e[1:, :] |= lm[1:, :] != lm[:-1, :]      # so the outline cannot come back broken
+    edge = cv2.dilate(e.astype(np.uint8), ell(a.outline_width))
+    if a.outline == 'fill':  line = edge
+    if a.outline == 'both':  line = (line | edge).astype(np.uint8)
+
     if a.keep_tones:
         out[fill > 0] = img[fill > 0]
-    elif a.tones > 1:                                               # keep the 3-D face shading
-        px = img[fill > 0]
-        v = np.ascontiguousarray(px, np.float32)
-        lb = cv2.kmeans(v, min(a.tones, len(v)), None, CRIT, 3, cv2.KMEANS_PP_CENTERS)[1].ravel()
-        for i in np.unique(lb): px[lb == i] = np.median(px[lb == i], 0)
-        out[fill > 0] = px
     else:
-        out[fill > 0] = cv2.cvtColor(np.float32([[t]]), cv2.COLOR_LAB2BGR)[0, 0] * 255
+        for k in range(1, len(cols) + 1): out[lm == k] = cols[k - 1]
     out[line > 0] = 0
     return out
 
@@ -186,6 +238,13 @@ p.add_argument('--seal', type=int, default=15, help='px of thick ink absorbed in
 p.add_argument('--link', type=int, default=2, help='px of gap an interior line may jump')
 p.add_argument('--tones', type=int, default=1, help='quantise the fill to N tones (3-D shading)')
 p.add_argument('--keep', type=int, default=0, help='keep only the N largest parts (0 = all)')
+p.add_argument('--outline', choices=['fill', 'ink', 'both'], default='fill',
+               help="'fill' redraws the outline from the region border so it cannot break")
+p.add_argument('--outline-width', type=int, default=1,
+               help='separator baked between regions; trace.py --stroke sets the drawn width')
+p.add_argument('--smooth', type=float, default=2,
+               help='Gaussian sigma smoothing the region border (fewer angle changes)')
+p.add_argument('--simplify', type=float, default=1.5, help='Douglas-Peucker tolerance px (0 off)')
 p.add_argument('--keep-tones', action='store_true', help='do not flatten the fill to one colour')
 a = p.parse_args()
 
