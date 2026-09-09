@@ -8,8 +8,9 @@ Tuning: --chroma-tol is tight (same hue), --light-tol is loose (same hue, any to
         --at X,Y to pick one region by a point on it.
         --keep 1 if the drawing is a single part; --min-area to drop bigger debris.
         Arrows are stripped by default (--no-arrows keeps them).
-        The outline is redrawn from the region border (--outline), so it never comes back
-        broken; --simplify sets how few angle changes it is allowed to keep.
+        trace.py strokes the silhouette itself, so the outer border can never come back
+        broken; --outline says what black gets baked in besides that.
+        Lower --ink on shaded renders: at the default their shadows read as outlines.
         --tones 3 keeps per-face shading on 3-D shapes; interior edges are kept when their
         ink reaches the perimeter, so stray specks go but 3-D construction lines stay.
 """
@@ -193,12 +194,16 @@ def clean(path, a):
         if nxt.sum() == gap.sum(): break
         gap = nxt
 
-    e = np.zeros(lm.shape, bool)             # one boundary between regions, not one per region:
-    e[:, 1:] |= lm[:, 1:] != lm[:, :-1]      # a label change is a closed curve by construction,
-    e[1:, :] |= lm[1:, :] != lm[:-1, :]      # so the outline cannot come back broken
-    edge = cv2.dilate(e.astype(np.uint8), ell(a.outline_width))
-    if a.outline == 'fill':  line = edge
-    if a.outline == 'both':  line = (line | edge).astype(np.uint8)
+    def border(m):                            # a label change is a closed curve by construction,
+        e = np.zeros(m.shape, bool)           # so a border drawn from it cannot come back broken
+        e[:, 1:] |= m[:, 1:] != m[:, :-1]
+        e[1:, :] |= m[1:, :] != m[:-1, :]
+        return cv2.dilate(e.astype(np.uint8), ell(a.outline_width))
+
+    # Only the shape-vs-background border is an outline. A tone-to-tone border is shading, and
+    # stroking those rings every band in black -- the drawing ends up looking like a stencil.
+    if a.outline == 'fill':  line = (border((lm > 0).astype(np.int32)) | line).astype(np.uint8)
+    if a.outline == 'tones': line = border(lm)          # contour every band (topographic look)
 
     if a.keep_tones:
         out[fill > 0] = img[fill > 0]
@@ -238,8 +243,9 @@ p.add_argument('--seal', type=int, default=15, help='px of thick ink absorbed in
 p.add_argument('--link', type=int, default=2, help='px of gap an interior line may jump')
 p.add_argument('--tones', type=int, default=1, help='quantise the fill to N tones (3-D shading)')
 p.add_argument('--keep', type=int, default=0, help='keep only the N largest parts (0 = all)')
-p.add_argument('--outline', choices=['fill', 'ink', 'both'], default='fill',
-               help="'fill' redraws the outline from the region border so it cannot break")
+p.add_argument('--outline', choices=['fill', 'ink', 'tones'], default='ink',
+               help="'fill' = unbreakable shape border + real ink; 'ink' = ink only; "
+                    "'tones' also contours every tonal band")
 p.add_argument('--outline-width', type=int, default=1,
                help='separator baked between regions; trace.py --stroke sets the drawn width')
 p.add_argument('--smooth', type=float, default=2,

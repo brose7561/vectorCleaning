@@ -22,13 +22,13 @@ Without it, it falls back to vtracer, which uv installs.
 
 Picks the dominant colour and **every tone of it** (constant hue, any lightness or saturation),
 keeps interior 3-D edges that reach the perimeter, strips arrows and leader lines, and writes a
-flat PNG ready to trace. The outline is **redrawn from the region border**, not traced from the
-ink, so it is closed by construction and cannot come back broken.
+flat PNG ready to trace.
 
 ```sh
 uv run clean.py shot.png -o clean/              # batch; also takes *.png
 uv run clean.py shot.png -o out.png --keep 1    # drawing is a single part
 uv run clean.py iso.png  -o out.png --tones 3   # 3-D: keep 3 face tones
+uv run clean.py render.png -o out.png --box 80,25,262,220 --tones 4 --ink 25   # shaded render
 ```
 
 | flag | reach for it when |
@@ -42,14 +42,17 @@ uv run clean.py iso.png  -o out.png --tones 3   # 3-D: keep 3 face tones
 | `--no-arrows` | arrows and leaders should be kept |
 | `--smooth` | Gaussian sigma on the region border — fewer angle changes (default 2) |
 | `--simplify` | Douglas-Peucker tolerance in px (default 1.5); DP keeps sharp corners, Visvalingam would round them |
-| `--outline` | `fill` redraws it from the region border (default), `ink` traces the ink, `both` unions them |
+| `--ink` | a shaded render (not line art): at the default 45 its shadows read as outlines — try 25 |
+| `--outline` | what black to bake besides the stroked silhouette: `ink` (default), `fill`, or `tones` to contour every band |
 
 Limit: an arrow lying *entirely* inside the shape isn't detected — it needs a portion outside.
 
 ## trace.py — cleaned PNG → SVG
 
-Stacks one filled layer per tone, then **strokes those very same paths** black. The outline is
-therefore the fill boundary exactly — aligned, closed, and free of extra points.
+Stacks one filled layer per tone, then **strokes the silhouette path** black. The outer border is
+therefore the fill boundary exactly — aligned, closed by construction, and free of extra points.
+Only the silhouette is stroked: ringing every tonal band as well makes the drawing read as a
+stencil. Interior dividers and 3-D edges come from real ink instead.
 
 ```sh
 uv run trace.py clean/shot.png -o shot.svg                  # smooth Bezier curves
