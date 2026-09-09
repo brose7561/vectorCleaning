@@ -8,6 +8,8 @@ Smoothest curves and smallest files for CAD-style shapes.  vtracer backend: one 
 import argparse, os, re, shutil, subprocess, sys, tempfile
 import cv2, numpy as np
 
+CRIT = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_MAX_ITER, 30, .5)
+
 def ell(k): return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k | 1, k | 1))
 
 def potrace(mask, a, tmp, tag):
@@ -106,11 +108,20 @@ def trace(src, dst, a):
     cols = np.zeros((0, 3), np.uint8)
     if body.any():                                                 # one layer per flat tone
         u, n = np.unique(bgr[body].reshape(-1, 3), axis=0, return_counts=True)
-        cols = (u[np.argsort(-n)] if len(u) <= 32 else               # >32 = not quantised, use median
-                np.median(bgr[body], 0).reshape(1, 3))[:a.max_tones]
+        if len(u) <= a.max_tones:
+            cols = u[np.argsort(-n)]
+        else:                       # not a flat clean.py PNG: quantise, or nothing would match
+            px = np.ascontiguousarray(bgr[body].reshape(-1, 3), np.float32)
+            k = min(a.max_tones, len(px))
+            lb, cen = cv2.kmeans(px, k, None, CRIT, 3, cv2.KMEANS_PP_CENTERS)[1:]
+            cols = cen[np.argsort(-np.bincount(lb.ravel(), minlength=k))].astype(np.uint8)
     hx = lambda c: '#%02x%02x%02x' % (int(c[2]), int(c[1]), int(c[0]))
+    # nearest tone wins, so a quantised image layers exactly as a flat one does
+    flat = bgr.reshape(-1, 3).astype(np.int32)
+    near = (np.stack([np.abs(flat - c.astype(np.int32)).sum(1) for c in cols]).argmin(0)
+            .reshape(bgr.shape[:2]) if len(cols) else np.zeros(bgr.shape[:2], np.int64))
     # 1 px of overlap so two neighbouring tones cannot leave a hairline of background between them
-    reg = [cv2.dilate((np.all(bgr == c, 2) & body).astype(np.uint8), ell(3)) & solid for c in cols]
+    reg = [cv2.dilate(((near == i) & body).astype(np.uint8), ell(3)) & solid for i in range(len(cols))]
     masks = [(m, hx(c), f'tone{i}') for i, (m, c) in enumerate(zip(reg, cols))]
     if not masks: masks = [(solid, '#808080', 'tone0')]
     if ink.any():                       # real ink only: dividers and 3-D edges, drawn as fill
