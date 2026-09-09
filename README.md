@@ -53,7 +53,8 @@ Limit: an arrow lying *entirely* inside the shape isn't detected — it needs a 
 One filled layer per tone (`tone0`, `tone1`, …) plus a black `ink` layer carrying the border and
 any interior dividers and 3-D edges. Nothing paints a backdrop, so the background stays
 transparent on every backend and every tone is separately selectable. The background is taken to
-be whatever colour frames the image, not assumed to be white — a scan on off-white paper would
+taken from the alpha channel if the PNG has one — a background you cut out by hand stays cut —
+otherwise from whatever colour frames the image, not assumed to be white — a scan on off-white paper would
 otherwise be traced as a big pale shape sitting behind everything (`--bg-tol`).
 
 `clean.py` draws the border from the shape's own region edge, so it is closed by construction and

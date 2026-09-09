@@ -91,12 +91,18 @@ def trace(src, dst, a):
     if img.dtype == np.uint16: img = (img >> 8).astype(np.uint8)
     h, w = img.shape[:2]
     bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if img.ndim == 2 else img[:, :, :3]
-    bgc = bg_colour(bgr)
+    # A hand-cut PNG records its removed background in the alpha channel; the colours underneath
+    # are usually still black, which would otherwise read as ink and get painted straight back in.
+    cut = img.ndim == 3 and img.shape[2] == 4
+    op = (img[:, :, 3] >= 128) if cut else np.ones(img.shape[:2], bool)
+    bgc = np.float64([255, 255, 255]) if cut else bg_colour(bgr)
     if a.backend == 'vtracer' or (a.backend == 'auto' and not shutil.which('potrace')):
         return vtracer(src, dst, a, bgc)
-    ink   = bgr.max(2) <= a.ink                                    # outline baked in by clean.py
-    solid = (~((np.abs(bgr.astype(np.int16) - bgc).max(2) <= a.bg_tol)   # matches the frame...
-               | (bgr.min(2) >= a.paper))).astype(np.uint8)               # ...or is plain white
+    ink   = (bgr.max(2) <= a.ink) & op                             # outline baked in by clean.py
+    bg = (~op | (bgr.min(2) >= a.paper)) if cut else (                   # alpha is authoritative;
+        (np.abs(bgr.astype(np.int16) - bgc).max(2) <= a.bg_tol)           # else: matches the frame
+        | (bgr.min(2) >= a.paper))                                        # ...or is plain white
+    solid = (~bg).astype(np.uint8)
     d = cv2.distanceTransform(ink.astype(np.uint8), cv2.DIST_L2, 3)
     band = (solid > 0) & (cv2.erode(solid, ell(7)) == 0)   # the strip just inside the silhouette:
     drawn = band.any() and float(ink[band].mean()) > .5    # if that is ink, the border is already
