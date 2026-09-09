@@ -1,0 +1,14 @@
+[project]
+name = "vector-cleaning"
+version = "0.1.0"
+description = "Isolate one colour's tones from a noisy PNG and vectorise it; pull figures out of PDFs."
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+    "pymupdf>=1.24",
+    "vtracer>=0.6.15,<1",   # extract_svgs.py uses the 0.6 API
+]
+
+[tool.uv]
+package = false             # a scripts repo, not a library
