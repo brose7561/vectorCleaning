@@ -56,9 +56,10 @@ def polygon_svg(masks, a, w, h, sw):
             if len(p) < 3: continue
             n += len(p)
             d.append('M' + ' '.join(f'{x} {y}' for x, y in p[:, 0]) + 'Z')
-        if d:
+        if d and name == 'silhouette':
+            strokes.append(' '.join(d))
+        elif d:
             body.append(f'<path id="{name}" d="{" ".join(d)}" fill="{c}" fill-rule="evenodd"/>')
-            if name == 'base': strokes.append(' '.join(d))
     if sw > 0 and strokes:
         body.append(f'<g id="outline" fill="none" stroke="#000000" stroke-width="{sw:g}" '
                     f'stroke-linejoin="round">' +
@@ -87,12 +88,15 @@ def trace(src, dst, a):
         cols = (u[np.argsort(-n)] if len(u) <= 32 else               # >32 = not quantised, use median
                 np.median(bgr[body], 0).reshape(1, 3))[:a.max_tones]
     hx = lambda c: '#%02x%02x%02x' % (int(c[2]), int(c[1]), int(c[0]))
-    reg = [(np.all(bgr == c, 2) & body).astype(np.uint8) for c in cols]   # the hairline separator
-    #  keeps same-tone pieces apart, so interior dividers survive as their own contours
-    masks = [(solid, hx(cols[0]) if len(cols) else '#808080', 'base')]
-    masks += [(m, hx(c), f'tone{i}') for i, (m, c) in enumerate(zip(reg, cols)) if i]
+    # 1 px of overlap so two neighbouring tones cannot leave a hairline of background between them
+    reg = [cv2.dilate((np.all(bgr == c, 2) & body).astype(np.uint8), ell(3)) & solid for c in cols]
+    masks = [(m, hx(c), f'tone{i}') for i, (m, c) in enumerate(zip(reg, cols))]
+    if not masks: masks = [(solid, '#808080', 'tone0')]
     if ink.any():                       # real ink only: dividers and 3-D edges, drawn as fill
         masks += [(ink.astype(np.uint8), '#000000', 'ink')]
+    # Geometry for the stroke only, never filled: a filled backdrop would put the shape colour
+    # and the layer behind it on one object, so neither could be selected on its own.
+    masks += [(solid, None, 'silhouette')]
 
     if a.backend == 'polygon':
         svg, n = polygon_svg(masks, a, w, h, sw)
@@ -109,8 +113,8 @@ def trace(src, dst, a):
     for txt, c, name in layers:                                    # potrace's <g> keeps its transform
         gs = '\n'.join(re.sub(r'\s+(?:fill|stroke)="[^"]*"', '', g) for g in re.findall(r'<g\b.*?</g>', txt, re.S))
         if not gs.strip(): continue
+        if name == 'silhouette': strokes.append(gs); continue
         out.append(f'<g id="{name}" fill="{c}">\n{gs}\n</g>')
-        if name == 'base': strokes.append(gs)
     if sw > 0 and strokes:      # the outline IS the fill boundary: stroke the very same paths, so
         u = sw * a.upscale * 10                 # it aligns exactly and cannot come back broken
         out.append(f'<g id="outline" fill="none" stroke="#000000" stroke-width="{u:g}" '

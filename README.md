@@ -49,10 +49,13 @@ Limit: an arrow lying *entirely* inside the shape isn't detected — it needs a 
 
 ## trace.py — cleaned PNG → SVG
 
-Stacks one filled layer per tone, then **strokes the silhouette path** black. The outer border is
-therefore the fill boundary exactly — aligned, closed by construction, and free of extra points.
-Only the silhouette is stroked: ringing every tonal band as well makes the drawing read as a
-stencil. Interior dividers and 3-D edges come from real ink instead.
+One filled layer per tone (`tone0`, `tone1`, …), a black `ink` layer for interior dividers and
+3-D edges, and an `outline` layer that **strokes the silhouette** — `fill="none"`, so nothing
+paints a backdrop and the background stays transparent. Every tone is separately selectable.
+
+The outer border is the fill boundary exactly: aligned, closed by construction, free of extra
+points. Only the silhouette is stroked — ringing every tonal band as well makes the drawing read
+as a stencil.
 
 ```sh
 uv run trace.py clean/shot.png -o shot.svg                  # smooth Bezier curves
