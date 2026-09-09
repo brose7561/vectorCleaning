@@ -43,19 +43,21 @@ uv run clean.py render.png -o out.png --box 80,25,262,220 --tones 4 --ink 25   #
 | `--smooth` | Gaussian sigma on the region border — fewer angle changes (default 2) |
 | `--simplify` | Douglas-Peucker tolerance in px (default 1.5); DP keeps sharp corners, Visvalingam would round them |
 | `--ink` | a shaded render (not line art): at the default 45 its shadows read as outlines — try 25 |
-| `--outline` | what black to bake besides the stroked silhouette: `ink` (default), `fill`, or `tones` to contour every band |
+| `--outline` | `fill` = border + found lines (default), `ink` = found lines only, `tones` also contours every band |
+| `--outline-width` | border thickness in px (default 3) |
 
 Limit: an arrow lying *entirely* inside the shape isn't detected — it needs a portion outside.
 
 ## trace.py — cleaned PNG → SVG
 
-One filled layer per tone (`tone0`, `tone1`, …), a black `ink` layer for interior dividers and
-3-D edges, and an `outline` layer that **strokes the silhouette** — `fill="none"`, so nothing
-paints a backdrop and the background stays transparent. Every tone is separately selectable.
+One filled layer per tone (`tone0`, `tone1`, …) plus a black `ink` layer carrying the border and
+any interior dividers and 3-D edges. Nothing paints a backdrop, so the background stays
+transparent and every tone is separately selectable.
 
-The outer border is the fill boundary exactly: aligned, closed by construction, free of extra
-points. Only the silhouette is stroked — ringing every tonal band as well makes the drawing read
-as a stencil.
+`clean.py` draws the border from the shape's own region edge, so it is closed by construction and
+cannot come back broken. If a PNG arrives with no border drawn, `trace.py` adds one by stroking
+the silhouette — a shape is never left bare. Only the silhouette is ever stroked: ringing each
+tonal band as well makes the drawing read as a stencil.
 
 ```sh
 uv run trace.py clean/shot.png -o shot.svg                  # smooth Bezier curves

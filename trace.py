@@ -78,8 +78,11 @@ def trace(src, dst, a):
     ink   = bgr.max(2) <= a.ink                                    # outline baked in by clean.py
     solid = (bgr.min(2) < a.paper).astype(np.uint8)                # everything not background
     d = cv2.distanceTransform(ink.astype(np.uint8), cv2.DIST_L2, 3)
-    sw = max(2.0, 2 * float(np.percentile(d[d > 0], 85))) if (d > 0).any() else 2.0
-    #  a shaded render carries no ink to measure, but it still needs its silhouette drawn
+    band = (solid > 0) & (cv2.erode(solid, ell(7)) == 0)   # the strip just inside the silhouette:
+    drawn = band.any() and float(ink[band].mean()) > .5    # if that is ink, the border is already
+    #  drawn and the ink layer renders it, so adding a stroke would only double it up
+    sw = 0.0 if drawn else (max(2.0, 2 * float(np.percentile(d[d > 0], 85))) if (d > 0).any()
+                            else 2.0)           # else stroke it, so a shape is never left bare
     if a.stroke >= 0: sw = a.stroke
     body = solid.astype(bool) & ~ink
     cols = np.zeros((0, 3), np.uint8)

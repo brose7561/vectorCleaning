@@ -8,8 +8,8 @@ Tuning: --chroma-tol is tight (same hue), --light-tol is loose (same hue, any to
         --at X,Y to pick one region by a point on it.
         --keep 1 if the drawing is a single part; --min-area to drop bigger debris.
         Arrows are stripped by default (--no-arrows keeps them).
-        trace.py strokes the silhouette itself, so the outer border can never come back
-        broken; --outline says what black gets baked in besides that.
+        Every shape gets a border drawn round it from its own region edge, so it is closed by
+        construction and can never come back broken; found interior lines are kept alongside it.
         Lower --ink on shaded renders: at the default their shadows read as outlines.
         --tones 3 keeps per-face shading on 3-D shapes; interior edges are kept when their
         ink reaches the perimeter, so stray specks go but 3-D construction lines stay.
@@ -243,11 +243,10 @@ p.add_argument('--seal', type=int, default=15, help='px of thick ink absorbed in
 p.add_argument('--link', type=int, default=2, help='px of gap an interior line may jump')
 p.add_argument('--tones', type=int, default=1, help='quantise the fill to N tones (3-D shading)')
 p.add_argument('--keep', type=int, default=0, help='keep only the N largest parts (0 = all)')
-p.add_argument('--outline', choices=['fill', 'ink', 'tones'], default='ink',
+p.add_argument('--outline', choices=['fill', 'ink', 'tones'], default='fill',
                help="'fill' = unbreakable shape border + real ink; 'ink' = ink only; "
                     "'tones' also contours every tonal band")
-p.add_argument('--outline-width', type=int, default=1,
-               help='separator baked between regions; trace.py --stroke sets the drawn width')
+p.add_argument('--outline-width', type=int, default=3, help='border thickness in px')
 p.add_argument('--smooth', type=float, default=2,
                help='Gaussian sigma smoothing the region border (fewer angle changes)')
 p.add_argument('--simplify', type=float, default=1.5, help='Douglas-Peucker tolerance px (0 off)')
