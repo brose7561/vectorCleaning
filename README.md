@@ -52,8 +52,9 @@ Limit: an arrow lying *entirely* inside the shape isn't detected — it needs a 
 
 One filled layer per tone (`tone0`, `tone1`, …) plus a black `ink` layer carrying the border and
 any interior dividers and 3-D edges. Nothing paints a backdrop, so the background stays
-transparent on every backend and every tone is separately selectable. (vtracer traces the white
-background as real shapes, unlike potrace; those get stripped.)
+transparent on every backend and every tone is separately selectable. The background is taken to
+be whatever colour frames the image, not assumed to be white — a scan on off-white paper would
+otherwise be traced as a big pale shape sitting behind everything (`--bg-tol`).
 
 `clean.py` draws the border from the shape's own region edge, so it is closed by construction and
 cannot come back broken. If a PNG arrives with no border drawn, `trace.py` adds one by stroking

@@ -23,22 +23,27 @@ def potrace(mask, a, tmp, tag):
                    check=True, capture_output=True)
     return open(dst).read()
 
-def drop_background(p, thr=250):
-    """vtracer traces the white background as real shapes; potrace never sees it. Strip them,
-    so every backend leaves the background transparent."""
+def bg_colour(bgr):
+    """Whatever frames the image is the background -- it is not always white."""
+    return np.median(np.concatenate([bgr[0], bgr[-1], bgr[:, 0], bgr[:, -1]]), 0)
+
+def drop_background(p, bgc, tol):
+    """vtracer traces the background as real shapes; potrace never sees it. Strip them, so every
+    backend leaves the background transparent."""
     def keep(m):
         c = m.group(1)
-        return '' if min(int(c[i:i + 2], 16) for i in (1, 3, 5)) >= thr else m.group(0)
+        rgb = [int(c[i:i + 2], 16) for i in (1, 3, 5)]
+        return '' if max(abs(rgb[i] - bgc[2 - i]) for i in range(3)) <= tol else m.group(0)
     s = re.sub(r'<path[^>]*fill="(#[0-9a-fA-F]{6})"[^>]*/>', keep, open(p).read())
     open(p, 'w').write(s)
 
-def vtracer(src, dst, a):
+def vtracer(src, dst, a, bgc):
     try:                                          # the pip/uv package ships a module, not a binary
         import vtracer as vt
         vt.convert_image_to_svg_py(src, dst, colormode='color', mode=a.mode,
                                    filter_speckle=a.speckle, color_precision=8,
                                    corner_threshold=a.corner, path_precision=3)
-        return drop_background(dst)
+        return drop_background(dst, bgc, a.bg_tol)
     except ImportError:
         pass
     exe = shutil.which('vtracer') or sys.exit('need potrace, or: uv add vtracer')
@@ -52,7 +57,7 @@ def vtracer(src, dst, a):
         n = next((x for x in names if x in h), None)
         if n: args += [n, str(v)]
     subprocess.run(args, check=True)
-    drop_background(dst)
+    drop_background(dst, bgc, a.bg_tol)
 
 def polygon_svg(masks, a, w, h, sw):
     """Emit Douglas-Peucker polygons straight to path data -- exact control of the vertex count,
@@ -82,12 +87,14 @@ def trace(src, dst, a):
     img = cv2.imread(src, cv2.IMREAD_UNCHANGED)
     if img is None: sys.exit(f'cannot read {src}')
     if img.dtype == np.uint16: img = (img >> 8).astype(np.uint8)
-    if a.backend == 'vtracer' or (a.backend == 'auto' and not shutil.which('potrace')):
-        return vtracer(src, dst, a)
     h, w = img.shape[:2]
     bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if img.ndim == 2 else img[:, :, :3]
+    bgc = bg_colour(bgr)
+    if a.backend == 'vtracer' or (a.backend == 'auto' and not shutil.which('potrace')):
+        return vtracer(src, dst, a, bgc)
     ink   = bgr.max(2) <= a.ink                                    # outline baked in by clean.py
-    solid = (bgr.min(2) < a.paper).astype(np.uint8)                # everything not background
+    solid = (~((np.abs(bgr.astype(np.int16) - bgc).max(2) <= a.bg_tol)   # matches the frame...
+               | (bgr.min(2) >= a.paper))).astype(np.uint8)               # ...or is plain white
     d = cv2.distanceTransform(ink.astype(np.uint8), cv2.DIST_L2, 3)
     band = (solid > 0) & (cv2.erode(solid, ell(7)) == 0)   # the strip just inside the silhouette:
     drawn = band.any() and float(ink[band].mean()) > .5    # if that is ink, the border is already
@@ -147,6 +154,8 @@ p.add_argument('--turdsize', type=int, default=2, help='drop specks up to N px')
 p.add_argument('--turnpolicy', default='minority')
 p.add_argument('--upscale', type=int, default=2, help='supersample before tracing')
 p.add_argument('--ink', type=int, default=90, help='max channel value counted as outline')
+p.add_argument('--bg-tol', type=int, default=12,
+               help='how close to the framing colour still counts as background')
 p.add_argument('--paper', type=int, default=250, help='min channel value counted as background')
 p.add_argument('--stroke', type=float, default=-1,
                help='outline width in px; -1 = measure it from the cleaned PNG, 0 = none')
